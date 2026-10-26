@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Automated EC2 Web Server Deployment using CloudFormation
+
+Parameters:
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Select your default VPC
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select a subnet inside the selected VPC
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+Resources:
+
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow public HTTP traffic
+      VpcId: !Ref VpcId
+
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+        - Key: Name
+          Value: automated-ec2-web-sg
+
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: '0'
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref WebSecurityGroup
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          dnf update -y
+          dnf install -y nginx
+
+          systemctl enable --now nginx
+
+          cat > /usr/share/nginx/html/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Automated EC2 Deployment</title>
+          </head>
+          <body>
+            <h1>Deployment Successful!</h1>
+            <p>This website was deployed automatically using AWS CloudFormation.</p>
+            <p>Web server: Nginx</p>
+            <p>Operating system: Amazon Linux 2023</p>
+          </body>
+          </html>
+          EOF
+
+      Tags:
+        - Key: Name
+          Value: automated-ec2-web-server
+        - Key: Project
+          Value: automated-ec2-deployment
+
+Outputs:
+
+  InstanceId:
+    Description: ID of the EC2 instance
+    Value: !Ref WebServer
+
+  PublicIP:
+    Description: Public IPv4 address of the web server
+    Value: !GetAtt WebServer.PublicIp
+
+  WebsiteURL:
+    Description: URL of the deployed website
+    Value: !Sub 'http://${WebServer.PublicDnsName}'
